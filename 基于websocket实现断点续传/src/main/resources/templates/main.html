@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org"
+      xmlns:sec="http://www.thymeleaf.org/thymeleaf-extras-springsecurity5">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+</head>
+<!--注意：不要使用在form表单下使用button按钮触发函数，
+               要么把form删掉,要么把button换成a。
+               不然大文件上传会连不上后端接口。
+      -->
+<body>
+<div >
+    <span id="currentUsername" sec:authorize="isAuthenticated()" sec:authentication="name" ></span>
+</div>
+<div id="app">
+    <input type="file" id="upload" @change="getFile($event)">
+    <button @click="postFile">上传</button>
+</div>
+
+<script th:src="@{/js/vue.min.js}"></script>
+<script th:src="@{/js/axios.min.js}"></script>
+<script th:src="@{/js/jquery.min.js}"></script>
+<script>
+    const username=$('#currentUsername').text();
+    const success = "success";
+    const failure = "failure";
+    const finish = "finish"
+    new Vue({
+        el: '#app',
+        data: {
+            thisFile: '',
+            fileHistory: '',
+            originName: '',
+            partLen: 5242880, //5MB，每个片段的大小，根据业务调整，需要在config里设置最大限制
+            total: 0,
+            part: 1,
+            websocket: null,
+            /*120.39.221.137*/
+            wsUrl: "ws://localhost:8080/upload",
+        },
+        methods: {
+            getFile(event) {
+                this.thisFile = event.currentTarget.files[0];
+                this.originName = this.thisFile.name;
+                axios.get('/checkFile/' +username+"/"+ this.originName).then(res => {
+                    if (res.data == '' || res.data == null || res.data == undefined) {
+                        //新文件
+                        this.total = parseInt(this.thisFile.size / this.partLen) +
+                            (this.thisFile.size % this.partLen == 0 ? 0 : 1);
+                    } else {
+                        //断点文件
+                        this.fileHistory = res.data;
+                        this.part = this.fileHistory.part;
+                        this.total = this.fileHistory.total;
+                    }
+                });
+
+            },
+
+            onOpen() {
+                var partFile = this.fileSlice(this.thisFile, this.partLen, this.part)
+                this.post(partFile, this.total, this.part, this.originName)
+                alert("开始上传")
+            },
+            onMessage(event) {
+                let done = event.data;
+                if (done == success) {
+                    this.part++;
+                    var partFile = this.fileSlice(this.thisFile, this.partLen, this.part)
+                    this.post(partFile, this.total, this.part, this.originName)
+                }
+                if (done == failure) {
+                    alert("服务器崩溃，上传失败")
+                }
+                if (done == finish) {
+                    alert("上传成功")
+                }
+            },
+            onClose() {
+                console.log("断开连接")
+            },
+            onError() {
+                alert("websocket连接失败，请重试")
+            },
+            postFile() {
+                this.websocket = new WebSocket(this.wsUrl);
+                //=号表示左边后端只要触发websocket相关事件，就会执行右边方法；
+                this.websocket.onopen = this.onOpen;
+                this.websocket.onmessage = this.onMessage;
+                this.websocket.onerror = this.onError;
+                this.websocket.onclose = this.onClose;
+            },
+            fileSlice(file, partLen, part) {
+                var begin = (part - 1) * partLen
+                var end = part * partLen
+                var partFile = file.slice(begin, end)
+                return partFile;
+            },
+            post(file, total, part, originName) {
+                var websocket=this.websocket
+                var reader = new FileReader();
+                reader.readAsArrayBuffer(file);
+                reader.onload = function loaded(evt) {
+                    var ArrayBuffer = evt.target.result;
+                    var json={"total":total,"part":part,"filePart":null,"name":originName};
+                    var myFile = JSON.stringify(json)
+                    websocket.send(ArrayBuffer);
+                    websocket.send(myFile);
+
+                }
+
+
+            },
+        }
+        })
+
+</script>
+</body>
+</html>

@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+</head>
+<!--注意：不要使用在form表单下使用button按钮触发函数，
+               要么把form删掉,要么把button换成a。
+               不然大文件上传会连不上后端接口。
+      -->
+<body>
+
+<div id="app">
+        <input type="file" id="upload" @change="getFile($event)">
+        <button @click="postFile">上传</button>
+</div>
+<script th:src="@{/js/vue.min.js}"></script>
+<script th:src="@{/js/axios.min.js}"></script>
+<script th:src="@{/js/jquery.min.js}"></script>
+<script>
+    const success="success";
+    const finish="finish"
+    new Vue({
+        el: '#app',
+        data: {
+            thisFile: '',
+            fileHistory: '',
+            originName:'',
+            partLen:5242880, //5MB，每个片段的大小，根据业务调整
+            total:0,
+            part:1,
+        },
+        methods: {
+            getFile(event) {
+                this.thisFile = event.currentTarget.files[0];
+                this.originName=this.thisFile.name;
+                axios.get('/checkFile/'+ this.originName).then(res=>{
+                    if(res.data=='' || res.data==null ||res.data==undefined){
+                        //新文件
+                        this.total=parseInt(this.thisFile.size/this.partLen)+
+                            (this.thisFile.size%this.partLen==0?0:1);
+                    }else {
+                        //断点文件
+                        this.fileHistory=res.data;
+                        this.part=this.fileHistory.part;
+                        this.total=this.fileHistory.total;
+                    }
+                });
+
+            },
+            fileSlice(file,partLen,part){
+                var begin=(part-1)*partLen
+                var end=part*partLen
+                var partFile=file.slice(begin,end)
+                return partFile;
+            },
+            async postFile(){
+                for (let i = this.part; i <=this.total ; i++) {
+                    let r;
+                    var partFile=this.fileSlice(this.thisFile,this.partLen,i)
+                    //.then()中的res即为post方法的返回值
+                    await this.post(partFile,this.total,i,this.originName).then(res=>{r=res})
+                    if (r==finish){
+                        alert("上传完成!")
+                        location.reload();
+                    }
+                    if (r!=success){
+                          break;
+                    }
+                }
+            },
+            async post(file,total,part,originName) {
+                let r;
+                let params = new FormData()
+                params.append('total',total)
+                params.append('part', part)
+                params.append('file', file)
+                params.append('name',originName )
+                await  axios.post('/upload', params, {headers: {'Content-Type': 'multipart/form-data'}}).
+                then(res=>{
+                    r=res.data
+                })
+                return r; //return的结果依旧保存在调用这个函数的.then的res中
+
+            },
+        },
+
+    })
+
+</script>
+</body>
+</html>
+100
+20个片段
+
+1
